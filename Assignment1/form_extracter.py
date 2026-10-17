@@ -2,9 +2,39 @@ from bs4 import BeautifulSoup
 from requests_html import HTMLSession
 from pprint import pprint
 import csv
+from urllib.robotparser import RobotFileParser
+from urllib.parse import urlparse
+import requests
+import os
+from urllib.parse import urljoin
 
 # initialize an HTTP session
 session = HTMLSession()
+
+USER_AGENT = "CSS576EducationalBot/1.0 (css576.cyber.dataset@gmail.com)"
+session.headers.update({"User-Agent": USER_AGENT})
+
+def check_robots(url):
+    parsed = urlparse(url)
+    robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
+
+    response = requests.get(
+        robots_url,
+        headers={"User-Agent": USER_AGENT},
+        timeout=10
+    )
+
+    print("Robots status:", response.status_code)
+
+    # Do not interpret a rejected request as permission
+    if response.status_code != 200:
+        print("Could not retrieve robots.txt successfully")
+        return False
+
+    robot = RobotFileParser()
+    robot.parse(response.text.splitlines())
+
+    return robot.can_fetch(USER_AGENT, url)
 
 # read seed URLs from a CSV file
 def read_seed_urls(csv_file):
@@ -21,17 +51,28 @@ def read_seed_urls(csv_file):
     return urls
 
 def save_form_results(url, forms):
-    with open("extracted_forms.csv", "a", newline="") as file:
+    filename = "extracted_forms.csv"
+
+    write_header = (
+        not os.path.exists(filename)
+        or os.path.getsize(filename) == 0
+    )
+
+    with open(filename, "a", newline="") as file:
         writer = csv.writer(file)
 
-        writer.writerow(["URL", "Form Action", "Form Method", "Number of Inputs"])
+        if write_header:
+            writer.writerow([
+                "URL", "Form Action",
+                "Form Method", "Number of Inputs"
+            ])
 
         for form in forms:
             details = get_form_details(form)
 
             writer.writerow([
                 url,
-                details["action"],
+                urljoin(url, details["action"] or ""),
                 details["method"],
                 len(details["inputs"])
             ])
@@ -60,10 +101,10 @@ def get_form_details(form):
     # get the form action (requested URL)
     action = form.get("action")
     if action:
-        action = action.lower()
+        action = action
     # get the form method (POST, GET, DELETE, etc)
     # if not specified, GET is the default in HTML
-    method = form.get("method", "get").lower()
+    method = form.get("method", "get")
     # get all form inputs
     inputs = []
     for input_tag in form.find_all("input"):
@@ -122,15 +163,20 @@ if __name__ == "__main__":
     # forms = get_all_forms(url)
 
     #get all form tags from a local file
-    forms = get_all_forms_local_file("sample.html")
-    # iteratte over forms
-    for i, form in enumerate(forms, start=1):
-        form_details = get_form_details(form)
-        print("="*50, f"form #{i}", "="*50)
-        pprint(form_details)
+    # forms = get_all_forms_local_file("sample.html")
+    # # iteratte over forms
+    # for i, form in enumerate(forms, start=1):
+    #     form_details = get_form_details(form)
+    #     print("="*50, f"form #{i}", "="*50)
+    #     pprint(form_details)
 
     urls = read_seed_urls("seeds.csv")
+
     for url in urls:
+        allowed = check_robots(url)
+        if not allowed:
+            print(f"Crawling not permitted by robots.txt for: {url}")
+            continue
         print(f"Extracting forms from: {url}")
         forms = get_all_forms(url)
         for i, form in enumerate(forms, start=1):
