@@ -1,9 +1,40 @@
 from bs4 import BeautifulSoup
 from requests_html import HTMLSession
 from pprint import pprint
+import csv
 
 # initialize an HTTP session
 session = HTMLSession()
+
+# read seed URLs from a CSV file
+def read_seed_urls(csv_file):
+    urls = []
+
+    with open(csv_file, "r", newline="") as file:
+        reader = csv.DictReader(file)
+
+        for row in reader:
+            url = row["url"].strip()
+            if url:
+                urls.append(url)
+
+    return urls
+
+def save_form_results(url, forms):
+    with open("extracted_forms.csv", "a", newline="") as file:
+        writer = csv.writer(file)
+
+        writer.writerow(["URL", "Form Action", "Form Method", "Number of Inputs"])
+
+        for form in forms:
+            details = get_form_details(form)
+
+            writer.writerow([
+                url,
+                details["action"],
+                details["method"],
+                len(details["inputs"])
+            ])
 
 # modified function get_all_forms(url) to read from a local file instead of making an HTTP request
 def get_all_forms_local_file(file_path):
@@ -97,3 +128,13 @@ if __name__ == "__main__":
         form_details = get_form_details(form)
         print("="*50, f"form #{i}", "="*50)
         pprint(form_details)
+
+    urls = read_seed_urls("seeds.csv")
+    for url in urls:
+        print(f"Extracting forms from: {url}")
+        forms = get_all_forms(url)
+        for i, form in enumerate(forms, start=1):
+            form_details = get_form_details(form)
+            print("="*50, f"form #{i}", "="*50)
+            pprint(form_details)
+            save_form_results(url, [form])
