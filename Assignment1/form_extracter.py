@@ -7,12 +7,32 @@ from urllib.parse import urlparse
 import requests
 import os
 from urllib.parse import urljoin
-
+import json
 # initialize an HTTP session
 session = HTMLSession()
 
 USER_AGENT = "CSS576EducationalBot/1.0 (css576.cyber.dataset@gmail.com)"
 session.headers.update({"User-Agent": USER_AGENT})
+
+def load_persona(file_path):
+    with open(file_path, "r") as file:
+        return json.load(file)
+
+def perpare_form_data(form_details, persona):
+    data = {}
+    for input_field in form_details["inputs"]:
+        field_name1 = input_field.get("name")
+        
+        if not field_name1:
+            continue  # Skip inputs without a name attribute
+
+        field_name = field_name1.lower()
+        # Use persona data if available, otherwise use default value
+        if field_name in persona:
+            data[field_name] = persona[field_name]
+        else:
+            data[field_name] = input_field.get("value", "")
+    return data
 
 def check_robots(url):
     parsed = urlparse(url)
@@ -130,7 +150,7 @@ def get_form_details(form):
             option_value = select_option.get("value")
             if option_value:
                 select_options.append(option_value)
-                if select_option.get("selected"):
+                if select_option.has_attr("selected"):
                     # if 'selected' attribute is set, set this option as default    
                     select_default_value = option_value
         if not select_default_value and select_options:
@@ -144,7 +164,7 @@ def get_form_details(form):
         # set the type as textarea
         textarea_type = "textarea"
         # get the textarea value
-        textarea_value = textarea.get("value", "")
+        textarea_value = textarea.get_text()
         # add the textarea to the inputs list
         inputs.append({"type": textarea_type, "name": textarea_name, "value": textarea_value})
         
@@ -171,6 +191,8 @@ if __name__ == "__main__":
     #     pprint(form_details)
 
     urls = read_seed_urls("seeds.csv")
+    persona = load_persona("persona.json")
+
 
     for url in urls:
         allowed = check_robots(url)
@@ -183,4 +205,14 @@ if __name__ == "__main__":
             form_details = get_form_details(form)
             print("="*50, f"form #{i}", "="*50)
             pprint(form_details)
+            form_data = perpare_form_data(form_details, persona)
+            print("\n------ DRY RUN ------")
+            print("Website:", url)
+            submission_url = urljoin(url, form_details["action"] or "")
+
+            print("Submission URL:", submission_url)
+            print("Method:", form_details["method"])
+            print("Payload:")
+            pprint(form_data)
+            print("Submission performed: NO")
             save_form_results(url, [form])
