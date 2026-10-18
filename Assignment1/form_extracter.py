@@ -34,6 +34,34 @@ def perpare_form_data(form_details, persona):
             data[field_name] = input_field.get("value", "")
     return data
 
+def submit_form_local(submission_url, method, form_data):
+
+    parsed = urlparse(submission_url)
+
+    if parsed.hostname not in ("localhost", "127.0.0.1"):
+        raise ValueError("Only local submissions are permitted")
+
+    method = method.lower()
+
+    if method == "post":
+        response = session.post(
+            submission_url,
+            data=form_data,
+            timeout=10
+        )
+
+    elif method == "get":
+        response = session.get(
+            submission_url,
+            params=form_data,
+            timeout=10
+        )
+
+    else:
+        raise ValueError(f"Unsupported HTTP method: {method}")
+
+    return response
+
 def check_robots(url):
     parsed = urlparse(url)
     if parsed.hostname in ("localhost", "127.0.0.1"):
@@ -218,3 +246,19 @@ if __name__ == "__main__":
             pprint(form_data)
             print("Submission performed: NO")
             save_form_results(url, [form])
+
+            if urlparse(submission_url).hostname in ("localhost", "127.0.0.1"):
+
+                try:
+                    response = submit_form_local(
+                        submission_url,
+                        form_details["method"],
+                        form_data
+                    )
+
+                    print("\n------ LOCAL SUBMISSION RESULT ------")
+                    print("Status Code:", response.status_code)
+                    print("Response:", response.text)
+
+                except requests.RequestException as e:
+                    print("Submission error:", e)
