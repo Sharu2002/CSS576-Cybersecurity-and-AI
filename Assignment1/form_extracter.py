@@ -8,6 +8,7 @@ import requests
 import os
 from urllib.parse import urljoin
 import json
+from datetime import datetime, timezone
 # initialize an HTTP session
 session = HTMLSession()
 
@@ -33,6 +34,49 @@ def perpare_form_data(form_details, persona):
         else:
             data[field_name] = input_field.get("value", "")
     return data
+
+def save_submission_log(
+    website_url,
+    submission_url,
+    method,
+    form_data,
+    status_code,
+    submission_status,
+    confirmation_status
+):
+    print("\n------ SUBMISSION LOG ------")
+    filename = "submission_log.csv"
+
+    write_header = (
+        not os.path.exists(filename)
+        or os.path.getsize(filename) == 0
+    )
+
+    with open(filename, "a", newline="") as file:
+        writer = csv.writer(file)
+
+        if write_header:
+            writer.writerow([
+                "Website URL",
+                "Submission URL",
+                "Timestamp",
+                "Method",
+                "Submitted Data",
+                "HTTP Status",
+                "Submission Status",
+                "Confirmation Status"
+            ])
+
+        writer.writerow([
+            website_url,
+            submission_url,
+            datetime.now(timezone.utc).isoformat(),
+            method,
+            json.dumps(form_data),
+            status_code,
+            submission_status,
+            confirmation_status
+        ])
 
 def submit_form_local(submission_url, method, form_data):
 
@@ -260,5 +304,26 @@ if __name__ == "__main__":
                     print("Status Code:", response.status_code)
                     print("Response:", response.text)
 
+# Check whether the local test server accepted the request
+                    if (
+                        response.status_code == 200
+                        and "Subscription received successfully" in response.text
+                    ):
+                        submission_status = "Received"
+                    else:
+                        submission_status = "Unverified"
+
+                    save_submission_log(
+                        website_url=url,
+                        submission_url=submission_url,
+                        method=form_details["method"],
+                        form_data=form_data,
+                        status_code=response.status_code,
+                        submission_status=submission_status,
+                        confirmation_status="Local test only"
+                    )
+
                 except requests.RequestException as e:
                     print("Submission error:", e)
+
+                    

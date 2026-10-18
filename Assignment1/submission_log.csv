@@ -1,0 +1,2 @@
+Website URL,Submission URL,Timestamp,Method,Submitted Data,HTTP Status,Submission Status,Confirmation Status
+http://localhost:8000,http://localhost:8000/subscribe,2026-10-18T01:11:34.151886+00:00,POST,"{""name"": ""Crypto Phoenix"", ""email"": ""css576.cyber.dataset@gmail.com"", ""address"": ""8200 Business Way"", ""city"": ""Plain City"", ""state"": ""Ohio"", ""zip"": ""43064"", ""country"": ""United States""}",200,Received,Local test only
