@@ -36,6 +36,8 @@ def perpare_form_data(form_details, persona):
 
 def check_robots(url):
     parsed = urlparse(url)
+    if parsed.hostname in ("localhost", "127.0.0.1"):
+        return True
     robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
 
     response = requests.get(
