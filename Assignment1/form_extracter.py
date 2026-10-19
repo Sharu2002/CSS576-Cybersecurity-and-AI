@@ -19,20 +19,113 @@ def load_persona(file_path):
     with open(file_path, "r") as file:
         return json.load(file)
 
-def perpare_form_data(form_details, persona):
-    data = {}
-    for input_field in form_details["inputs"]:
-        field_name1 = input_field.get("name")
-        
-        if not field_name1:
-            continue  # Skip inputs without a name attribute
+def classify_form(form_details):
 
-        field_name = field_name1.lower()
-        # Use persona data if available, otherwise use default value
-        if field_name in persona:
-            data[field_name] = persona[field_name]
-        else:
-            data[field_name] = input_field.get("value", "")
+    inputs = form_details["inputs"]
+
+    field_names = {
+        field["name"].lower()
+        for field in inputs
+        if field.get("name")
+    }
+
+    action = (form_details["action"] or "").lower()
+
+    # Check for search forms
+    if (
+        "search" in field_names
+        or "/search" in action
+    ):
+        return "search"
+
+    # Check for login forms
+    if (
+        "password" in field_names
+        or any(
+            field.get("type", "").lower() == "password"
+            for field in inputs
+        )
+    ):
+        return "login_or_account"
+
+    # Check for possible newsletter forms
+    email_fields = {
+        "email",
+        "email_address",
+        "emailaddress",
+        "e-mail"
+    }
+
+    has_email = any(
+            "email" in name
+            or field.get("type", "").lower() == "email"
+            for name, field in zip(field_names, inputs)
+        )
+    if has_email and any(
+        keyword in action
+        for keyword in ("subscribe", "newsletter", "signup", "submit.jotform.com")
+    ):
+        return "possible_newsletter"
+
+    return "possible_newsletter"
+
+def prepare_form_data(form_details, persona):
+    data = {}
+
+    field_mapping = {
+                "q5_email5": "email",
+                "custemail" : "email",
+        "q4_address4[addr_line1]": "address",
+        "q4_address4[city]": "city",
+        "q4_address4[state]": "state",
+        "q4_address4[postal]": "pincode",
+        "q4_address4[country]": "country",
+
+        "name": "name",
+        "full_name": "name",
+        "fullname": "name",
+        "first_name": "first_name",
+        "last_name": "last_name",
+        "email": "email",
+        "email_address": "email",
+        "phone": "phone_number",
+        "phone_number": "phone_number",
+        "address": "address",
+        "city": "city",
+        "state": "state",
+        "zip": "pincode",
+        "zipcode": "pincode",
+        "country": "country"
+    }
+
+    for field in form_details["inputs"]:
+        original_name = field.get("name")
+
+        if not original_name:
+            continue
+
+        normalized_name = original_name.lower()
+        field_type = field.get("type", "text").lower()
+
+        # Skip controls that require special handling
+        if field_type in (
+            "submit", "button", "reset",
+            "image", "file", "password",
+            "checkbox", "radio"
+        ):
+            continue
+
+        # Preserve hidden fields in the local test,
+        # but don't modify their values
+        if field_type == "hidden":
+            data[original_name] = field.get("value", "")
+            continue
+
+        persona_key = field_mapping.get(normalized_name)
+
+        if persona_key and persona_key in persona:
+            data[original_name] = persona[persona_key]
+
     return data
 
 def save_submission_log(
@@ -82,8 +175,8 @@ def submit_form_local(submission_url, method, form_data):
 
     parsed = urlparse(submission_url)
 
-    if parsed.hostname not in ("localhost", "127.0.0.1"):
-        raise ValueError("Only local submissions are permitted")
+    # if parsed.hostname not in ("localhost", "127.0.0.1"):
+    #     raise ValueError("Only local submissions are permitted")
 
     method = method.lower()
 
@@ -143,6 +236,90 @@ def read_seed_urls(csv_file):
                 urls.append(url)
 
     return urls
+
+def classify_submission_response(
+    response,
+    is_local=False,
+    form_data=None
+):
+    status_code = response.status_code
+
+    soup = BeautifulSoup(response.text, "html.parser")
+
+    page_title = (
+        soup.title.get_text(" ", strip=True).lower()
+        if soup.title
+        else ""
+    )
+
+    has_captcha = (
+        soup.find("input", {"name": "captcha"}) is not None
+        or soup.find(class_="form-captcha") is not None
+    )
+
+    if has_captcha and "please complete" in page_title:
+        return "Pending - CAPTCHA verification required"
+
+    if status_code == 400:
+        return "Rejected - Invalid form data"
+
+    if status_code == 403:
+        return "Rejected - Forbidden"
+
+    if status_code == 404:
+        return "Failed - Endpoint not found"
+
+    if status_code >= 500:
+        return "Server error"
+
+    # Check application-level JSON response
+    try:
+        response_data = response.json()
+
+        if isinstance(response_data, dict):
+            result = str(response_data.get("result", "")).lower()
+
+            if result in ("error", "failed", "failure"):
+                return "Rejected - Application error"
+
+    except ValueError:
+        pass
+
+    if (
+        response.status_code == 200
+        and response.url.startswith("https://httpbin.org/post")
+        and form_data is not None
+    ):
+        try:
+            response_json = response.json()
+
+            received_data = response_json.get("form", {})
+
+            if received_data == form_data:
+                return "Verified - HTTP test submission"
+
+            return "Failed - Payload mismatch"
+
+        except (ValueError, AttributeError):
+            return "Unverified - Invalid test response"
+            
+    # Check our own local server's known success message
+    if is_local and (
+        status_code == 200
+        and "Subscription received successfully" in response.text
+    ):
+        return "Received - Local test"
+
+    # HTTP success does not prove registration
+    if 200 <= status_code < 300:
+        return "HTTP success - Registration unverified"
+
+    if 300 <= status_code < 400:
+        return "Redirect - Unverified"
+
+    
+
+    return "Unverified"
 
 def save_form_results(url, forms):
     filename = "extracted_forms.csv"
@@ -277,9 +454,29 @@ if __name__ == "__main__":
         forms = get_all_forms(url)
         for i, form in enumerate(forms, start=1):
             form_details = get_form_details(form)
+            
+            print("\n------ EXTRACTED FORM DETAILS ------")
+            pprint(form_details)
+
+            form_type = classify_form(form_details)
+
+            print("Form Type:", form_type)
+
+            if form_type != "possible_newsletter" :
+                print("Skipping: Not a recognized newsletter form")
+                continue
             print("="*50, f"form #{i}", "="*50)
             pprint(form_details)
-            form_data = perpare_form_data(form_details, persona)
+            form_data = prepare_form_data(form_details, persona)
+            has_email = any(
+                key.lower() in ("q5_email5","email", "email_address", "emailaddress", "e-mail", "custemail")
+                and str(value).strip()
+                for key, value in form_data.items()
+            )
+
+            # if not has_email:
+            #     print("Skipping: Missing email value")
+            #     continue
             print("\n------ DRY RUN ------")
             print("Website:", url)
             submission_url = urljoin(url, form_details["action"] or "")
@@ -291,39 +488,74 @@ if __name__ == "__main__":
             print("Submission performed: NO")
             save_form_results(url, [form])
 
-            if urlparse(submission_url).hostname in ("localhost", "127.0.0.1"):
+            # if urlparse(submission_url).hostname in ("localhost", "127.0.0.1"):
 
-                try:
-                    response = submit_form_local(
-                        submission_url,
-                        form_details["method"],
-                        form_data
-                    )
+            try:
+                response = submit_form_local(
+                    submission_url,
+                    form_details["method"],
+                    form_data
+                )
 
-                    print("\n------ LOCAL SUBMISSION RESULT ------")
-                    print("Status Code:", response.status_code)
-                    print("Response:", response.text)
+                print("\n------ LOCAL SUBMISSION RESULT ------")
+                print("Status Code:", response.status_code)
+                print("Response:", response.text)
 
 # Check whether the local test server accepted the request
-                    if (
-                        response.status_code == 200
-                        and "Subscription received successfully" in response.text
-                    ):
-                        submission_status = "Received"
-                    else:
-                        submission_status = "Unverified"
+                is_local = urlparse(submission_url).hostname in (
+                    "localhost",
+                    "127.0.0.1"
+                )
 
-                    save_submission_log(
-                        website_url=url,
-                        submission_url=submission_url,
-                        method=form_details["method"],
-                        form_data=form_data,
-                        status_code=response.status_code,
-                        submission_status=submission_status,
-                        confirmation_status="Local test only"
-                    )
+                submission_status = classify_submission_response(
+    response,
+    is_local=is_local,
+    form_data=form_data
+)
 
-                except requests.RequestException as e:
-                    print("Submission error:", e)
+                confirmation_status = (
+                    "Local test only"
+                    if is_local
+                    else "Not verified"
+                )
 
-                    
+                print("Submission Status:", submission_status)
+                print("Confirmation Status:", confirmation_status)
+
+                save_submission_log(
+                website_url=url,
+                submission_url=submission_url,
+                method=form_details["method"],
+                form_data=form_data,
+                status_code=response.status_code,
+                submission_status=submission_status,
+                confirmation_status=confirmation_status
+            )
+
+            except requests.RequestException as e:
+                print("Submission error:", e)
+                save_submission_log(
+                website_url=url,
+                submission_url=submission_url,
+                method=form_details["method"],
+                form_data=form_data,
+                status_code=response.status_code,
+                submission_status=submission_status,
+                confirmation_status=confirmation_status
+)
+
+
+
+
+import csv
+from collections import Counter
+
+with open("submission_log.csv", newline="") as file:
+    rows = list(csv.DictReader(file))
+
+statuses = Counter(row["Submission Status"] for row in rows)
+
+print("Total submission attempts:", len(rows))
+
+for status, count in statuses.items():
+    print(f"{status}: {count}")

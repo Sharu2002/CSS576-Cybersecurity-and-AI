@@ -34,6 +34,26 @@ class TestHandler(BaseHTTPRequestHandler):
 
             form_data = parse_qs(body)
 
+            # Extract submitted name and email
+            name = form_data.get("name", [""])[0]
+            email = form_data.get("email", [""])[0]
+
+            # Check if required fields are missing
+            if not name or not email:
+                self.send_response(400)
+                self.send_header("Content-Type", "text/plain")
+                self.end_headers()
+                self.wfile.write(b"Missing required fields")
+                return
+
+            # Check basic email format
+            if "@" not in email or "." not in email.split("@")[-1]:
+                self.send_response(400)
+                self.send_header("Content-Type", "text/plain")
+                self.end_headers()
+                self.wfile.write(b"Invalid email")
+                return
+
             print("\nReceived form submission:")
             print(json.dumps(form_data, indent=4))
 
