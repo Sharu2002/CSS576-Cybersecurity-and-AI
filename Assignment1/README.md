@@ -46,34 +46,29 @@ Develop a spam crawler and collect network traffic data for subsequent cybersecu
 10. Save results. save_form_results() appends form metadata to extracted_forms.csv. save_submission_log() appends submission details and a UTC timestamp to submission_log.csv. A final Counter summarizes all rows currently in the log.
 
 ## Workflow
-seeds.csv + persona.json
-          |
-          v
-     check robots.txt
-          |
-      permitted?
-      /        \
-    no          yes
-   skip          |
-                 v
-           fetch page HTML
-                 |
-            extract forms
-                 |
-            classify forms
-                 |
-          prepare sample data
-                 |
-             print dry run
-                 |
-           approved test only
-                 |
-           send GET or POST
-                 |
-        inspect HTTP + body
-                 |
-     extracted_forms.csv and
-         submission_log.csv
+## Workflow
+
+```mermaid
+flowchart TD
+    A["Start: seeds.csv + persona.json"] --> B["Read seed URLs"]
+    B --> C["Check robots.txt"]
+    C --> D{"Crawling permitted?"}
+    D -->|No| E["Skip website"]
+    D -->|Yes| F["Fetch page HTML"]
+    F --> G["Extract HTML forms"]
+    G --> H["Classify forms"]
+    H --> I{"Relevant signup form?"}
+    I -->|No| J["Skip unrelated form"]
+    I -->|Yes| K["Prepare payload using persona"]
+    K --> L["Print dry-run details"]
+    L --> M["Save form to extracted_forms.csv"]
+    M --> N{"Submission authorized?"}
+    N -->|No| O["Stop after inspection"]
+    N -->|Yes| P["Send GET or POST request"]
+    P --> Q["Inspect HTTP status and response body"]
+    Q --> R["Classify submission result"]
+    R --> S["Append to submission_log.csv"]
+```
 
 ## Development and testing timeline
 
